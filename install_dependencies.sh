@@ -64,6 +64,7 @@ packages=(
     "scikit-learn>=1.0.0,<2.0.0"
     "transformers>=4.20.0"
     "sentence-transformers>=2.2.0"
+    "sentencepiece>=0.1.99"
     "nltk>=3.8.0"
     "jieba>=0.42.1"
     "matplotlib>=3.5.0"

@@ -1,0 +1,48 @@
+{
+  "model_name": "BiLSTM",
+  "metrics": {
+    "accuracy": 0.49,
+    "precision": 0.40115718418514945,
+    "recall": 0.469172932330827,
+    "f1_score": 0.36755952380952384,
+    "training_time": 1.7365038394927979
+  },
+  "per_class_metrics": {
+    "Class_0": {
+      "precision": 0.29411764705882354,
+      "recall": 0.05263157894736842,
+      "f1_score": 0.08928571428571429
+    },
+    "Class_1": {
+      "precision": 0.5081967213114754,
+      "recall": 0.8857142857142857,
+      "f1_score": 0.6458333333333334
+    },
+    "macro_avg": {
+      "precision": 0.40115718418514945,
+      "recall": 0.469172932330827,
+      "f1_score": 0.36755952380952384
+    }
+  },
+  "classification_report": "              precision    recall  f1-score   support\n\n           0       0.29      0.05      0.09        95\n           1       0.51      0.89      0.65       105\n\n    accuracy                           0.49       200\n   macro avg       0.40      0.47      0.37       200\nweighted avg       0.41      0.49      0.38       200\n",
+  "confusion_matrix": [
+    [
+      5,
+      90
+    ],
+    [
+      12,
+      93
+    ]
+  ],
+  "confusion_matrix_normalized": [
+    [
+      0.05263157894736842,
+      0.9473684210526315
+    ],
+    [
+      0.11428571428571428,
+      0.8857142857142857
+    ]
+  ]
+}
