@@ -16,13 +16,15 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from config import (
     RANDOM_SEED,
-    TRAIN_TEST_SPLIT,
+    TRAIN_VAL_TEST_SPLIT,
     STRATIFIED_SPLIT,
     RESULTS_DIR,
     METRICS_DIR,
     PLOTS_DIR,
     MODELS_DIR,
     PREDICTIONS_DIR,
+    NUM_CLASSES,
+    USE_SENTIMENT_FEATURES,
 )
 
 # Import modules
@@ -35,6 +37,7 @@ from src.analysis import ngrams
 from src.analysis import network
 from src.features import tfidf
 from src.features import transformers as trans_features
+from src.features import sentiment_features as sent_features
 from src.models import classical
 from src.models import bilstm
 from src.models import transformers as trans_models
@@ -196,30 +199,69 @@ def main():
     logger.info("Step 6: Feature Extraction")
     logger.info("=" * 80)
     
-    # Prepare data for classification (using category as target)
-    # Note: The paper uses category prediction, but we'll use sentiment labels
-    # as specified in the task description
+    # Prepare data for classification (binary sentiment classification)
+    # The paper performs binary sentiment classification: 0=negative, 1=positive
+    y_labels = df_a_translated['label'].values.astype(int)
     
-    # Split Dataset A for training
     X_texts = df_a_translated['review_en_processed'].tolist()
-    y_labels = df_a_translated['label'].values
     
-    X_train, X_test, y_train, y_test = train_test_split(
+    # Split into train/validation/test (70/15/15)
+    train_ratio, val_ratio, test_ratio = TRAIN_VAL_TEST_SPLIT
+    
+    # First split: train + val vs test
+    X_temp, X_test, y_temp, y_test = train_test_split(
         X_texts,
         y_labels,
-        test_size=1 - TRAIN_TEST_SPLIT,
+        test_size=test_ratio,
         random_state=RANDOM_SEED,
         stratify=y_labels if STRATIFIED_SPLIT else None,
     )
     
+    # Second split: train vs val
+    val_size_adjusted = val_ratio / (train_ratio + val_ratio)
+    X_train, X_val, y_train, y_val = train_test_split(
+        X_temp,
+        y_temp,
+        test_size=val_size_adjusted,
+        random_state=RANDOM_SEED,
+        stratify=y_temp if STRATIFIED_SPLIT else None,
+    )
+    
+    logger.info(f"Binary sentiment label distribution:")
+    logger.info(f"  Negative (0): {(y_labels == 0).sum()} samples ({(y_labels == 0).mean()*100:.2f}%)")
+    logger.info(f"  Positive (1): {(y_labels == 1).sum()} samples ({(y_labels == 1).mean()*100:.2f}%)")
+    
     logger.info(f"Train set: {len(X_train)} samples")
+    logger.info(f"  Negative: {(y_train == 0).sum()}, Positive: {(y_train == 1).sum()}")
+    logger.info(f"Validation set: {len(X_val)} samples")
+    logger.info(f"  Negative: {(y_val == 0).sum()}, Positive: {(y_val == 1).sum()}")
     logger.info(f"Test set: {len(X_test)} samples")
+    logger.info(f"  Negative: {(y_test == 0).sum()}, Positive: {(y_test == 1).sum()}")
     
     # TF-IDF features
     logger.info("Extracting TF-IDF features")
     tfidf_extractor = tfidf.TFIDFExtractor()
     X_train_tfidf = tfidf_extractor.fit_transform(X_train)
+    X_val_tfidf = tfidf_extractor.transform(X_val)
     X_test_tfidf = tfidf_extractor.transform(X_test)
+    
+    # Sentiment features (feature-level sentiment analysis as per paper)
+    if USE_SENTIMENT_FEATURES:
+        logger.info("Extracting sentiment features (VADER scores)")
+        sentiment_extractor = sent_features.SentimentFeatureExtractor()
+        X_train_sentiment = sentiment_extractor.extract_features(X_train)
+        X_val_sentiment = sentiment_extractor.extract_features(X_val)
+        X_test_sentiment = sentiment_extractor.extract_features(X_test)
+        
+        # Combine TF-IDF with sentiment features
+        from scipy.sparse import hstack
+        logger.info("Combining TF-IDF and sentiment features")
+        X_train_tfidf = hstack([X_train_tfidf, X_train_sentiment])
+        X_val_tfidf = hstack([X_val_tfidf, X_val_sentiment])
+        X_test_tfidf = hstack([X_test_tfidf, X_test_sentiment])
+        logger.info(f"Combined feature shapes - Train: {X_train_tfidf.shape}, Val: {X_val_tfidf.shape}, Test: {X_test_tfidf.shape}")
+    else:
+        logger.info("Sentiment features disabled (USE_SENTIMENT_FEATURES=False)")
     
     # Transformer tokenization (for BERT/ELECTRA)
     logger.info("Tokenizing for transformer models")
@@ -248,6 +290,7 @@ def main():
             predictions,
             training_time=classical_trainer.training_times[model_name],
             model_name=model_name,
+            class_names=['negative', 'positive'],
         )
         all_results.append(result)
     
@@ -271,48 +314,105 @@ def main():
     X_train_bilstm = [text_to_indices(text) for text in X_train]
     X_test_bilstm = [text_to_indices(text) for text in X_test]
     
+    # Extract sentiment features for BiLSTM if enabled
+    X_train_sentiment_bilstm = None
+    X_val_sentiment_bilstm = None
+    X_test_sentiment_bilstm = None
+    if USE_SENTIMENT_FEATURES:
+        sentiment_extractor = sent_features.SentimentFeatureExtractor()
+        X_train_sentiment_bilstm = sentiment_extractor.extract_features(X_train)
+        X_val_sentiment_bilstm = sentiment_extractor.extract_features(X_val)
+        X_test_sentiment_bilstm = sentiment_extractor.extract_features(X_test)
+    
     bilstm_trainer = bilstm.BiLSTMTrainer(vocab_size=vocab_size)
-    bilstm_trainer.build_model()
+    bilstm_trainer.build_model(num_classes=NUM_CLASSES, use_sentiment_features=USE_SENTIMENT_FEATURES)
+    
+    X_val_bilstm = [text_to_indices(text) for text in X_val]
+    
     bilstm_history = bilstm_trainer.train(
         np.array(X_train_bilstm, dtype=object),
         y_train,
+        X_val=np.array(X_val_bilstm, dtype=object) if len(X_val_bilstm) > 0 else None,
+        y_val=y_val if len(y_val) > 0 else None,
+        X_train_sentiment=X_train_sentiment_bilstm,
+        X_val_sentiment=X_val_sentiment_bilstm,
         epochs=50,
     )
     
-    predictions_bilstm = bilstm_trainer.predict(np.array(X_test_bilstm, dtype=object))
+    predictions_bilstm = bilstm_trainer.predict(
+        np.array(X_test_bilstm, dtype=object),
+        X_test_sentiment=X_test_sentiment_bilstm,
+    )
     result_bilstm = metrics.evaluate_model(
         y_test,
         predictions_bilstm,
         training_time=bilstm_trainer.training_time,
         model_name="BiLSTM",
+        class_names=['negative', 'positive'],
     )
     all_results.append(result_bilstm)
     
     # BERT
     logger.info("Training BERT model")
-    bert_trainer = trans_models.BERTTrainer()
-    bert_history = bert_trainer.train(X_train, y_train, epochs=50)
+    bert_trainer = trans_models.BERTTrainer(num_classes=NUM_CLASSES, use_sentiment_features=USE_SENTIMENT_FEATURES)
     
-    predictions_bert = bert_trainer.predict(X_test)
+    # Extract sentiment features for BERT if enabled
+    X_train_sentiment_bert = None
+    X_val_sentiment_bert = None
+    X_test_sentiment_bert = None
+    if USE_SENTIMENT_FEATURES:
+        sentiment_extractor = sent_features.SentimentFeatureExtractor()
+        X_train_sentiment_bert = sentiment_extractor.extract_features(X_train)
+        X_val_sentiment_bert = sentiment_extractor.extract_features(X_val)
+        X_test_sentiment_bert = sentiment_extractor.extract_features(X_test)
+    
+    bert_history = bert_trainer.train(
+        X_train, y_train,
+        X_val=X_val, y_val=y_val,
+        X_train_sentiment=X_train_sentiment_bert,
+        X_val_sentiment=X_val_sentiment_bert,
+        epochs=50,
+    )
+    
+    predictions_bert = bert_trainer.predict(X_test, X_test_sentiment=X_test_sentiment_bert)
     result_bert = metrics.evaluate_model(
         y_test,
         predictions_bert,
         training_time=bert_trainer.training_time,
         model_name="BERT",
+        class_names=['negative', 'positive'],
     )
     all_results.append(result_bert)
     
     # ELECTRA
     logger.info("Training ELECTRA model")
-    electra_trainer = trans_models.ELECTRATrainer()
-    electra_history = electra_trainer.train(X_train, y_train, epochs=50)
+    electra_trainer = trans_models.ELECTRATrainer(num_classes=NUM_CLASSES, use_sentiment_features=USE_SENTIMENT_FEATURES)
     
-    predictions_electra = electra_trainer.predict(X_test)
+    # Extract sentiment features for ELECTRA if enabled
+    X_train_sentiment_electra = None
+    X_val_sentiment_electra = None
+    X_test_sentiment_electra = None
+    if USE_SENTIMENT_FEATURES:
+        sentiment_extractor = sent_features.SentimentFeatureExtractor()
+        X_train_sentiment_electra = sentiment_extractor.extract_features(X_train)
+        X_val_sentiment_electra = sentiment_extractor.extract_features(X_val)
+        X_test_sentiment_electra = sentiment_extractor.extract_features(X_test)
+    
+    electra_history = electra_trainer.train(
+        X_train, y_train,
+        X_val=X_val, y_val=y_val,
+        X_train_sentiment=X_train_sentiment_electra,
+        X_val_sentiment=X_val_sentiment_electra,
+        epochs=50,
+    )
+    
+    predictions_electra = electra_trainer.predict(X_test, X_test_sentiment=X_test_sentiment_electra)
     result_electra = metrics.evaluate_model(
         y_test,
         predictions_electra,
         training_time=electra_trainer.training_time,
         model_name="ELECTRA",
+        class_names=['negative', 'positive'],
     )
     all_results.append(result_electra)
     

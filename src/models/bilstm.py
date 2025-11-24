@@ -30,6 +30,9 @@ from config import (
     RANDOM_SEED,
     USE_MPS,
     MODELS_DIR,
+    EARLY_STOPPING_PATIENCE,
+    EARLY_STOPPING_MIN_DELTA,
+    EARLY_STOPPING_MONITOR,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -45,7 +48,7 @@ if torch.cuda.is_available():
 class TextDataset(Dataset):
     """Dataset class for text classification."""
     
-    def __init__(self, texts: np.ndarray, labels: np.ndarray, vocab_size: int, max_length: int):
+    def __init__(self, texts: np.ndarray, labels: np.ndarray, vocab_size: int, max_length: int, sentiment_features: Optional[np.ndarray] = None):
         """
         Initialize dataset.
         
@@ -54,11 +57,13 @@ class TextDataset(Dataset):
             labels: Array of labels
             vocab_size: Vocabulary size
             max_length: Maximum sequence length
+            sentiment_features: Optional sentiment features array (n_samples, 4)
         """
         self.texts = texts
         self.labels = labels
         self.vocab_size = vocab_size
         self.max_length = max_length
+        self.sentiment_features = sentiment_features
     
     def __len__(self):
         return len(self.texts)
@@ -73,7 +78,12 @@ class TextDataset(Dataset):
         else:
             text = np.pad(text, (0, self.max_length - len(text)), mode='constant')
         
-        return torch.LongTensor(text), torch.LongTensor([label])
+        result = (torch.LongTensor(text), torch.LongTensor([label]))
+        
+        if self.sentiment_features is not None:
+            result = result + (torch.FloatTensor(self.sentiment_features[idx]),)
+        
+        return result
 
 
 class BiLSTMClassifier(nn.Module):
@@ -85,9 +95,10 @@ class BiLSTMClassifier(nn.Module):
         embedding_dim: int = BILSTM_EMBEDDING_DIM,
         hidden_dim: int = BILSTM_HIDDEN_DIM,
         num_layers: int = BILSTM_NUM_LAYERS,
-        num_classes: int = 2,
+        num_classes: int = 2,  # Binary sentiment classification
         dropout: float = BILSTM_DROPOUT,
         bidirectional: bool = BILSTM_BIDIRECTIONAL,
+        use_sentiment_features: bool = False,
     ):
         """
         Initialize BiLSTM model.
@@ -123,15 +134,19 @@ class BiLSTMClassifier(nn.Module):
         
         # Output layer
         lstm_output_dim = hidden_dim * 2 if bidirectional else hidden_dim
-        self.fc = nn.Linear(lstm_output_dim, num_classes)
+        # Add 4 dimensions for sentiment features if enabled
+        sentiment_dim = 4 if use_sentiment_features else 0
+        self.use_sentiment_features = use_sentiment_features
+        self.fc = nn.Linear(lstm_output_dim + sentiment_dim, num_classes)
         self.dropout = nn.Dropout(dropout)
     
-    def forward(self, x):
+    def forward(self, x, sentiment_features=None):
         """
         Forward pass.
         
         Args:
             x: Input tensor (batch_size, seq_length)
+            sentiment_features: Optional sentiment features tensor (batch_size, 4)
             
         Returns:
             Output tensor (batch_size, num_classes)
@@ -148,6 +163,12 @@ class BiLSTMClassifier(nn.Module):
             hidden = torch.cat((hidden[-2], hidden[-1]), dim=1)
         else:
             hidden = hidden[-1]
+        
+        # Concatenate sentiment features if provided
+        if self.use_sentiment_features and sentiment_features is not None:
+            hidden = torch.cat([hidden, sentiment_features], dim=1)
+        elif self.use_sentiment_features and sentiment_features is None:
+            raise ValueError("Sentiment features required but not provided")
         
         # Dropout and fully connected layer
         output = self.dropout(hidden)
@@ -195,9 +216,10 @@ class BiLSTMTrainer:
         embedding_dim: int = BILSTM_EMBEDDING_DIM,
         hidden_dim: int = BILSTM_HIDDEN_DIM,
         num_layers: int = BILSTM_NUM_LAYERS,
-        num_classes: int = 2,
+        num_classes: int = 2,  # Binary sentiment classification
         dropout: float = BILSTM_DROPOUT,
         bidirectional: bool = BILSTM_BIDIRECTIONAL,
+        use_sentiment_features: bool = False,
     ) -> BiLSTMClassifier:
         """
         Build BiLSTM model.
@@ -221,6 +243,7 @@ class BiLSTMTrainer:
             num_classes=num_classes,
             dropout=dropout,
             bidirectional=bidirectional,
+            use_sentiment_features=use_sentiment_features,
         )
         
         model.to(self.device)
@@ -236,6 +259,8 @@ class BiLSTMTrainer:
         y_train: np.ndarray,
         X_val: Optional[np.ndarray] = None,
         y_val: Optional[np.ndarray] = None,
+        X_train_sentiment: Optional[np.ndarray] = None,
+        X_val_sentiment: Optional[np.ndarray] = None,
         epochs: int = NUM_EPOCHS,
         batch_size: int = BILSTM_BATCH_SIZE,
         learning_rate: float = BILSTM_LEARNING_RATE,
@@ -261,17 +286,47 @@ class BiLSTMTrainer:
             self.build_model()
         
         # Create datasets
-        train_dataset = TextDataset(X_train, y_train, self.vocab_size, max_length)
+        train_dataset = TextDataset(X_train, y_train, self.vocab_size, max_length, X_train_sentiment)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
         
         val_loader = None
         if X_val is not None and y_val is not None:
-            val_dataset = TextDataset(X_val, y_val, self.vocab_size, max_length)
+            val_dataset = TextDataset(X_val, y_val, self.vocab_size, max_length, X_val_sentiment)
             val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
         
         # Loss and optimizer
         criterion = nn.CrossEntropyLoss()
         optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+        
+        # Early stopping
+        class EarlyStopping:
+            def __init__(self, patience=EARLY_STOPPING_PATIENCE, min_delta=EARLY_STOPPING_MIN_DELTA, monitor=EARLY_STOPPING_MONITOR):
+                self.patience = patience
+                self.min_delta = min_delta
+                self.monitor = monitor
+                self.best_score = float('inf') if monitor == 'val_loss' else float('-inf')
+                self.counter = 0
+                self.best_weights = None
+                self.early_stop = False
+            
+            def __call__(self, score, model):
+                if self.monitor == 'val_loss':
+                    is_better = score < self.best_score - self.min_delta
+                else:  # val_acc or val_f1
+                    is_better = score > self.best_score + self.min_delta
+                
+                if is_better:
+                    self.best_score = score
+                    self.counter = 0
+                    self.best_weights = model.state_dict().copy()
+                else:
+                    self.counter += 1
+                    if self.counter >= self.patience:
+                        self.early_stop = True
+                
+                return self.early_stop
+        
+        early_stopping = EarlyStopping() if val_loader is not None else None
         
         # Training history
         history = {
@@ -281,7 +336,7 @@ class BiLSTMTrainer:
             'val_acc': [],
         }
         
-        logger.info(f"Training BiLSTM for {epochs} epochs")
+        logger.info(f"Training BiLSTM for up to {epochs} epochs (early stopping enabled)")
         start_time = time.time()
         
         for epoch in range(epochs):
@@ -291,12 +346,20 @@ class BiLSTMTrainer:
             train_correct = 0
             train_total = 0
             
-            for texts, labels in train_loader:
-                texts = texts.to(self.device)
-                labels = labels.squeeze().to(self.device)
+            for batch in train_loader:
+                if len(batch) == 3:  # With sentiment features
+                    texts, labels, sentiment = batch
+                    texts = texts.to(self.device)
+                    labels = labels.squeeze().to(self.device)
+                    sentiment = sentiment.to(self.device)
+                    outputs = self.model(texts, sentiment)
+                else:  # Without sentiment features
+                    texts, labels = batch
+                    texts = texts.to(self.device)
+                    labels = labels.squeeze().to(self.device)
+                    outputs = self.model(texts)
                 
                 optimizer.zero_grad()
-                outputs = self.model(texts)
                 loss = criterion(outputs, labels)
                 loss.backward()
                 optimizer.step()
@@ -319,13 +382,20 @@ class BiLSTMTrainer:
             if val_loader is not None:
                 self.model.eval()
                 with torch.no_grad():
-                    for texts, labels in val_loader:
-                        texts = texts.to(self.device)
-                        labels = labels.squeeze().to(self.device)
+                    for batch in val_loader:
+                        if len(batch) == 3:  # With sentiment features
+                            texts, labels, sentiment = batch
+                            texts = texts.to(self.device)
+                            labels = labels.squeeze().to(self.device)
+                            sentiment = sentiment.to(self.device)
+                            outputs = self.model(texts, sentiment)
+                        else:  # Without sentiment features
+                            texts, labels = batch
+                            texts = texts.to(self.device)
+                            labels = labels.squeeze().to(self.device)
+                            outputs = self.model(texts)
                         
-                        outputs = self.model(texts)
                         loss = criterion(outputs, labels)
-                        
                         val_loss += loss.item()
                         _, predicted = torch.max(outputs.data, 1)
                         val_total += labels.size(0)
@@ -335,6 +405,14 @@ class BiLSTMTrainer:
                 val_acc = 100.0 * val_correct / val_total
                 history['val_loss'].append(val_loss)
                 history['val_acc'].append(val_acc)
+                
+                # Early stopping check
+                if early_stopping is not None:
+                    monitor_score = val_loss if EARLY_STOPPING_MONITOR == 'val_loss' else val_acc
+                    if early_stopping(monitor_score, self.model):
+                        logger.info(f"Early stopping triggered at epoch {epoch+1}")
+                        self.model.load_state_dict(early_stopping.best_weights)
+                        break
             
             if (epoch + 1) % 10 == 0 or epoch == 0:
                 log_msg = f"Epoch [{epoch+1}/{epochs}] - Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%"
@@ -347,12 +425,13 @@ class BiLSTMTrainer:
         
         return history
     
-    def predict(self, X: np.ndarray, batch_size: int = BILSTM_BATCH_SIZE, max_length: int = 128) -> np.ndarray:
+    def predict(self, X: np.ndarray, X_test_sentiment: Optional[np.ndarray] = None, batch_size: int = BILSTM_BATCH_SIZE, max_length: int = 128) -> np.ndarray:
         """
         Make predictions.
         
         Args:
             X: Tokenized texts
+            X_test_sentiment: Optional sentiment features
             batch_size: Batch size
             max_length: Maximum sequence length
             
@@ -363,15 +442,23 @@ class BiLSTMTrainer:
             raise ValueError("Model not trained. Call train() first.")
         
         self.model.eval()
-        dataset = TextDataset(X, np.zeros(len(X)), self.vocab_size, max_length)
+        dataset = TextDataset(X, np.zeros(len(X)), self.vocab_size, max_length, X_test_sentiment)
         loader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
         
         predictions = []
         
         with torch.no_grad():
-            for texts, _ in loader:
-                texts = texts.to(self.device)
-                outputs = self.model(texts)
+            for batch in loader:
+                if len(batch) == 3:  # With sentiment features
+                    texts, _, sentiment = batch
+                    texts = texts.to(self.device)
+                    sentiment = sentiment.to(self.device)
+                    outputs = self.model(texts, sentiment)
+                else:  # Without sentiment features
+                    texts, _ = batch
+                    texts = texts.to(self.device)
+                    outputs = self.model(texts)
+                
                 _, predicted = torch.max(outputs.data, 1)
                 predictions.extend(predicted.cpu().numpy())
         

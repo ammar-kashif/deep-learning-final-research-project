@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from config import CLASSICAL_MODELS, RANDOM_SEED, MODELS_DIR
+from config import CLASSICAL_MODELS, RANDOM_SEED, MODELS_DIR, NUM_CLASSES
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -225,10 +225,12 @@ class ClassicalModelTrainer:
         
         model = self.models[model_name]
         
-        # Linear Regression outputs continuous values, need to convert to binary
+        # Linear Regression outputs continuous values, need to convert to valid class range
         if isinstance(model, LinearRegression):
             predictions = model.predict(X)
-            predictions = (predictions >= 0.5).astype(int)
+            # Clip to valid class range [0, num_classes-1] and round to nearest integer
+            # For binary classification (NUM_CLASSES=2), range is [0, 1]
+            predictions = np.clip(np.round(predictions), 0, NUM_CLASSES - 1).astype(int)
         else:
             predictions = model.predict(X)
         

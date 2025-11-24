@@ -39,11 +39,26 @@ def compute_metrics(
     Args:
         y_true: True labels
         y_pred: Predicted labels
-        average: Averaging method for multi-class ('macro', 'micro', 'weighted')
+        average: Averaging method ('binary' for binary classification, 'macro', 'micro', 'weighted' for multi-class)
         
     Returns:
         Dictionary with metrics
     """
+    # Detect number of unique classes in predictions and true labels
+    unique_pred = np.unique(y_pred)
+    unique_true = np.unique(y_true)
+    n_classes_pred = len(unique_pred)
+    n_classes_true = len(unique_true)
+    
+    # If 'binary' average is specified but we have more than 2 classes, adjust
+    if average == 'binary':
+        if n_classes_pred > 2 or n_classes_true > 2:
+            logger.warning(f"Detected {n_classes_pred} unique predictions and {n_classes_true} unique labels, "
+                          f"but 'binary' average specified. Switching to 'macro' average.")
+            average = 'macro'
+    
+    # For binary classification, use 'binary' average
+    # For multi-class, use the specified average
     metrics = {
         'accuracy': accuracy_score(y_true, y_pred),
         'precision': precision_score(y_true, y_pred, average=average, zero_division=0),
@@ -65,14 +80,19 @@ def compute_per_class_metrics(
     Args:
         y_true: True labels
         y_pred: Predicted labels
-        class_names: Optional class names
+        class_names: Optional class names (defaults to ['negative', 'positive'] for binary)
         
     Returns:
         Dictionary with per-class metrics
     """
+    unique_classes = sorted(np.unique(np.concatenate([y_true, y_pred])))
+    
     if class_names is None:
-        unique_classes = sorted(np.unique(np.concatenate([y_true, y_pred])))
-        class_names = [f"Class_{c}" for c in unique_classes]
+        # Default to binary class names if 2 classes
+        if len(unique_classes) == 2:
+            class_names = ['negative', 'positive']
+        else:
+            class_names = [f"Class_{c}" for c in unique_classes]
     
     # Per-class precision, recall, F1
     precision = precision_score(y_true, y_pred, average=None, zero_division=0)
@@ -81,13 +101,15 @@ def compute_per_class_metrics(
     
     per_class_metrics = {}
     for i, class_name in enumerate(class_names):
-        per_class_metrics[class_name] = {
-            'precision': precision[i],
-            'recall': recall[i],
-            'f1_score': f1[i],
-        }
+        if i < len(precision):
+            per_class_metrics[class_name] = {
+                'precision': precision[i],
+                'recall': recall[i],
+                'f1_score': f1[i],
+            }
     
-    # Macro averages
+    # Macro averages (or binary average for binary classification)
+    avg_type = 'binary' if len(unique_classes) == 2 else 'macro'
     per_class_metrics['macro_avg'] = {
         'precision': np.mean(precision),
         'recall': np.mean(recall),

@@ -1,48 +1,48 @@
 {
   "model_name": "BERT",
   "metrics": {
-    "accuracy": 0.52,
-    "precision": 0.49927304448967724,
-    "recall": 0.49974937343358394,
-    "f1_score": 0.41111520058888484,
-    "training_time": 3028.1673810482025
+    "accuracy": 0.44666666666666666,
+    "precision": 0.43333333333333335,
+    "recall": 0.16455696202531644,
+    "f1_score": 0.23853211009174313,
+    "training_time": 34.46610903739929
   },
   "per_class_metrics": {
-    "Class_0": {
-      "precision": 0.47368421052631576,
-      "recall": 0.09473684210526316,
-      "f1_score": 0.15789473684210525
+    "negative": {
+      "precision": 0.45,
+      "recall": 0.7605633802816901,
+      "f1_score": 0.5654450261780105
     },
-    "Class_1": {
-      "precision": 0.5248618784530387,
-      "recall": 0.9047619047619048,
-      "f1_score": 0.6643356643356644
+    "positive": {
+      "precision": 0.43333333333333335,
+      "recall": 0.16455696202531644,
+      "f1_score": 0.23853211009174313
     },
     "macro_avg": {
-      "precision": 0.49927304448967724,
-      "recall": 0.49974937343358394,
-      "f1_score": 0.41111520058888484
+      "precision": 0.44166666666666665,
+      "recall": 0.4625601711535033,
+      "f1_score": 0.4019885681348768
     }
   },
-  "classification_report": "              precision    recall  f1-score   support\n\n           0       0.47      0.09      0.16        95\n           1       0.52      0.90      0.66       105\n\n    accuracy                           0.52       200\n   macro avg       0.50      0.50      0.41       200\nweighted avg       0.50      0.52      0.42       200\n",
+  "classification_report": "              precision    recall  f1-score   support\n\n    negative       0.45      0.76      0.57        71\n    positive       0.43      0.16      0.24        79\n\n    accuracy                           0.45       150\n   macro avg       0.44      0.46      0.40       150\nweighted avg       0.44      0.45      0.39       150\n",
   "confusion_matrix": [
     [
-      9,
-      86
+      54,
+      17
     ],
     [
-      10,
-      95
+      66,
+      13
     ]
   ],
   "confusion_matrix_normalized": [
     [
-      0.09473684210526316,
-      0.9052631578947369
+      0.7605633802816901,
+      0.23943661971830985
     ],
     [
-      0.09523809523809523,
-      0.9047619047619048
+      0.8354430379746836,
+      0.16455696202531644
     ]
   ]
 }

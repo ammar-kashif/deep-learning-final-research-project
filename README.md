@@ -4,15 +4,35 @@ Complete, reproducible Python implementation for replicating the research paper 
 
 ## Overview
 
-This project implements a comprehensive sentiment analysis pipeline that:
+This project implements a comprehensive binary sentiment classification pipeline that:
 - Loads Chinese product review datasets
 - Translates Chinese reviews to English using MarianMT
 - Preprocesses text in both languages
 - Performs sentiment analysis using VADER
 - Extracts N-grams and builds co-occurrence networks
-- Trains multiple models (classical ML, BiLSTM, BERT, ELECTRA)
+- Trains multiple models (classical ML, BiLSTM, BERT, ELECTRA) for **binary sentiment classification**
+- Integrates VADER sentiment features as model inputs (feature-level sentiment analysis)
 - Evaluates models with comprehensive metrics
 - Performs cross-dataset validation
+
+## Classification Task
+
+The primary task is **binary sentiment classification** (positive/negative) from review text, matching the paper's methodology.
+
+**Labels:**
+- `0` = Negative sentiment
+- `1` = Positive sentiment
+
+**Expected Performance (from paper):**
+- ELECTRA: ~98% accuracy, F1: ~0.97
+- BiLSTM: ~96% accuracy, F1: ~0.96
+- BERT: ~95% accuracy, F1: ~0.95
+- Random Forest: ~82% accuracy
+- SVC with SGD: ~89% accuracy
+
+## Feature-Level Sentiment Analysis
+
+The paper uses "feature-level sentiment analysis" where VADER sentiment scores (compound, pos, neu, neg) are integrated as additional features alongside TF-IDF and transformer embeddings. This is enabled by default via `USE_SENTIMENT_FEATURES = True` in `config.py`.
 
 ## Project Structure
 
@@ -183,7 +203,7 @@ The pipeline includes cross-dataset validation:
 
 Where the paper left specifications ambiguous, the following decisions were made:
 
-1. **Train/Test Split**: 80/20 stratified split (ensures class balance)
+1. **Train/Val/Test Split**: 70/15/15 stratified split (enables early stopping and validation)
 2. **TF-IDF max_features**: 30,000 (balance between performance and memory)
 3. **Random Seed**: 42 (for reproducibility across runs)
 4. **Batch Sizes**: 32 for transformers (memory efficient), 64 for BiLSTM
@@ -191,7 +211,9 @@ Where the paper left specifications ambiguous, the following decisions were made
 6. **BiLSTM Architecture**: 2 layers, 256 hidden units, 128 embedding dim
 7. **Translation Chunking**: 24 sentences per batch (balance between speed and memory)
 8. **MPS Acceleration**: Uses PyTorch MPS backend for Mac M3 optimization
-9. **Evaluation Metrics**: All metrics computed per-class and macro-averaged
+9. **Evaluation Metrics**: Binary classification metrics (accuracy, precision, recall, F1)
+10. **Early Stopping**: Enabled for BiLSTM (patience=5) and transformers (patience=3) to prevent overfitting
+11. **Sentiment Features**: VADER scores (compound, pos, neu, neg) integrated as 4 additional features per text
 
 ## Hardware Requirements
 

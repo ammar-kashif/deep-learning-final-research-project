@@ -28,9 +28,9 @@ DATASET_B_FILE = DATASET_B_DIR / "Online Shopping 10 Cats.csv"
 RANDOM_SEED = 42
 
 # Data splitting
-# Paper did not specify exact split ratio - using 80/20 stratified split
-# This ensures class balance across train and test sets
-TRAIN_TEST_SPLIT = 0.8
+# Paper did not specify exact split ratio - using train/val/test split for early stopping
+# Split: 70% train, 15% validation, 15% test (stratified to maintain class balance)
+TRAIN_VAL_TEST_SPLIT = (0.7, 0.15, 0.15)  # (train, val, test) proportions
 STRATIFIED_SPLIT = True
 
 # Translation settings
@@ -66,7 +66,13 @@ ELECTRA_MODEL = "google/electra-base-discriminator"
 SENTENCE_TRANSFORMER_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 # Training hyperparameters
-NUM_EPOCHS = 50
+NUM_EPOCHS = 50  # Maximum epochs (early stopping will terminate earlier if validation doesn't improve)
+
+# Early stopping
+EARLY_STOPPING_PATIENCE = 5  # Number of epochs to wait before stopping (BiLSTM)
+EARLY_STOPPING_PATIENCE_TRANSFORMER = 3  # Patience for transformers (converge faster)
+EARLY_STOPPING_MIN_DELTA = 0.0  # Minimum change to qualify as improvement
+EARLY_STOPPING_MONITOR = "val_loss"  # Metric to monitor: "val_loss" or "val_f1"
 
 # Transformer models (BERT, ELECTRA)
 TRANSFORMER_BATCH_SIZE = 32  # Memory efficient for transformers
@@ -126,9 +132,18 @@ NETWORK_TOP_NODES = 100  # Top nodes by degree for visualization
 # Cross-dataset validation
 CROSS_DATASET_SAMPLE_SIZE = 10000  # Number of reviews for model agreement analysis
 
+# Classification task
+# The paper performs binary sentiment classification (positive/negative)
+# Using label column: 0=negative, 1=positive
+NUM_CLASSES = 2  # Binary sentiment classification
+
+# Feature engineering
+# Paper uses "feature-level sentiment analysis" - integrate VADER sentiment scores as features
+USE_SENTIMENT_FEATURES = True  # Enable sentiment feature integration with TF-IDF/embeddings
+
 # Evaluation metrics
 METRICS = ["accuracy", "precision", "recall", "f1_score"]
-METRICS_AVERAGE = "macro"  # Macro-averaged metrics for multi-class
+METRICS_AVERAGE = "binary"  # Binary classification metrics
 
 # Output settings
 SAVE_MODELS = True
