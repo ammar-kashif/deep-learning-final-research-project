@@ -2,10 +2,8 @@
 """
 Quick test script for end-to-end pipeline validation.
 
-Runs the complete pipeline with reduced parameters:
-- 1 epoch instead of 50
-- Smaller sample sizes for faster execution
-- All stages are executed to verify the pipeline works
+Runs the complete pipeline with reduced dataset sizes but full training epochs
+so behaviour matches the primary experiment configuration.
 """
 
 import sys
@@ -18,14 +16,13 @@ from sklearn.model_selection import train_test_split
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-# Temporarily override config values for quick testing
+# Temporarily override config values for controlled testing
 import config
-config.NUM_EPOCHS = 1  # Single epoch for quick test
-config.CROSS_DATASET_SAMPLE_SIZE = 100  # Reduced from 10000
-config.TRANSFORMER_WARMUP_STEPS = 10  # Reduced warmup steps
-config.TOP_N_BIGRAMS = 10  # Reduced from 25
-config.TOP_N_TRIGRAMS = 10  # Reduced from 25
-config.NETWORK_TOP_NODES = 50  # Reduced from 100
+config.NUM_EPOCHS = 50  # Match full training setup
+config.CROSS_DATASET_SAMPLE_SIZE = 10000  # Reduced from 10000 but large enough
+config.TOP_N_BIGRAMS = 25  # Match base paper settings
+config.TOP_N_TRIGRAMS = 25  # Match base paper settings
+config.NETWORK_TOP_NODES = 100  # Match base paper settings
 
 from config import (
     RANDOM_SEED,
@@ -36,7 +33,7 @@ from config import (
     PLOTS_DIR,
     MODELS_DIR,
     PREDICTIONS_DIR,
-    NUM_EPOCHS,  # Now 1
+    NUM_EPOCHS,
 )
 
 # Import modules
@@ -69,7 +66,7 @@ np.random.seed(RANDOM_SEED)
 def main():
     """Quick test of the complete pipeline."""
     logger.info("=" * 80)
-    logger.info("QUICK TEST MODE - Running pipeline with 1 epoch")
+    logger.info(f"QUICK TEST MODE - Running pipeline with {NUM_EPOCHS} epochs")
     logger.info("=" * 80)
     
     # Create results directories
@@ -233,10 +230,10 @@ def main():
         electra_tokenizer = trans_features.ELECTRATokenizer()
         
         # ============================================================================
-        # Step 7: Train all models (1 epoch for quick test)
+        # Step 7: Train all models (full epochs)
         # ============================================================================
         logger.info("\n" + "=" * 80)
-        logger.info("Step 7: Training Models (1 epoch for quick test)")
+        logger.info(f"Step 7: Training Models ({NUM_EPOCHS} epochs)")
         logger.info("=" * 80)
         
         all_results = []
@@ -258,7 +255,7 @@ def main():
             all_results.append(result)
         
         # BiLSTM
-        logger.info("Training BiLSTM model (1 epoch)")
+        logger.info(f"Training BiLSTM model ({NUM_EPOCHS} epochs)")
         from collections import Counter
         all_tokens = []
         for text in X_train:
@@ -279,7 +276,7 @@ def main():
         bilstm_history = bilstm_trainer.train(
             np.array(X_train_bilstm, dtype=object),
             y_train,
-            epochs=1,  # Single epoch
+            epochs=NUM_EPOCHS,
         )
         
         predictions_bilstm = bilstm_trainer.predict(np.array(X_test_bilstm, dtype=object))
@@ -292,9 +289,9 @@ def main():
         all_results.append(result_bilstm)
         
         # BERT
-        logger.info("Training BERT model (1 epoch)")
+        logger.info(f"Training BERT model ({NUM_EPOCHS} epochs)")
         bert_trainer = trans_models.BERTTrainer()
-        bert_history = bert_trainer.train(X_train, y_train, epochs=1)
+        bert_history = bert_trainer.train(X_train, y_train, epochs=NUM_EPOCHS)
         
         predictions_bert = bert_trainer.predict(X_test)
         result_bert = metrics.evaluate_model(
@@ -306,9 +303,9 @@ def main():
         all_results.append(result_bert)
         
         # ELECTRA
-        logger.info("Training ELECTRA model (1 epoch)")
+        logger.info(f"Training ELECTRA model ({NUM_EPOCHS} epochs)")
         electra_trainer = trans_models.ELECTRATrainer()
-        electra_history = electra_trainer.train(X_train, y_train, epochs=1)
+        electra_history = electra_trainer.train(X_train, y_train, epochs=NUM_EPOCHS)
         
         predictions_electra = electra_trainer.predict(X_test)
         result_electra = metrics.evaluate_model(
@@ -345,17 +342,18 @@ def main():
         logger.info("=" * 80)
         
         # Prepare Dataset B for cross-dataset validation
-        X_test_b = df_b_translated['review_en_processed'].tolist()[:100]  # Small sample
-        y_test_b = df_b_translated['label'].values[:100]
+        cross_sample_size = min(1000, len(df_b_translated))
+        X_test_b = df_b_translated['review_en_processed'].tolist()[:cross_sample_size]
+        y_test_b = df_b_translated['label'].values[:cross_sample_size]
         
-        logger.info("Computing ELECTRA-BERT agreement on small sample")
+        logger.info(f"Computing ELECTRA-BERT agreement on sample of {cross_sample_size}")
         predictions_electra_b = electra_trainer.predict(X_test_b)
         predictions_bert_b = bert_trainer.predict(X_test_b)
         
         agreement_stats = cross_dataset.validate_model_agreement(
             predictions_electra_b,
             predictions_bert_b,
-            sample_size=100,
+            sample_size=cross_sample_size,
         )
         logger.info(f"Model Agreement: {agreement_stats['agreement_rate']:.4f}")
         
@@ -367,7 +365,7 @@ def main():
         logger.info("=" * 80)
         logger.info("\nAll pipeline stages executed without errors.")
         logger.info(f"Results saved to: {RESULTS_DIR}")
-        logger.info("\nTo run the full pipeline with 50 epochs, use: python3 main.py")
+        logger.info("\nThis configuration matches the full 50-epoch pipeline. For full dataset run: python3 main.py")
         logger.info("=" * 80)
         
     except Exception as e:

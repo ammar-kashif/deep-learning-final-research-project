@@ -5,7 +5,7 @@
     "precision": 0.7638190954773869,
     "recall": 0.5052631578947369,
     "f1_score": 0.35581140350877194,
-    "training_time": 0.0025281906127929688
+    "training_time": 0.0030341148376464844
   },
   "per_class_metrics": {
     "Class_0": {

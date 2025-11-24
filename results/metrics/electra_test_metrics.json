@@ -1,48 +1,48 @@
 {
   "model_name": "ELECTRA",
   "metrics": {
-    "accuracy": 0.535,
-    "precision": 0.7651515151515151,
-    "recall": 0.5105263157894737,
-    "f1_score": 0.3671532101663774,
-    "training_time": 37.672027826309204
+    "accuracy": 0.545,
+    "precision": 0.6847079037800687,
+    "recall": 0.5215538847117794,
+    "f1_score": 0.3973310374515712,
+    "training_time": 3530.223135948181
   },
   "per_class_metrics": {
     "Class_0": {
-      "precision": 1.0,
-      "recall": 0.021052631578947368,
-      "f1_score": 0.041237113402061855
+      "precision": 0.8333333333333334,
+      "recall": 0.05263157894736842,
+      "f1_score": 0.09900990099009901
     },
     "Class_1": {
-      "precision": 0.5303030303030303,
-      "recall": 1.0,
-      "f1_score": 0.693069306930693
+      "precision": 0.5360824742268041,
+      "recall": 0.9904761904761905,
+      "f1_score": 0.6956521739130435
     },
     "macro_avg": {
-      "precision": 0.7651515151515151,
-      "recall": 0.5105263157894737,
-      "f1_score": 0.3671532101663774
+      "precision": 0.6847079037800687,
+      "recall": 0.5215538847117794,
+      "f1_score": 0.3973310374515712
     }
   },
-  "classification_report": "              precision    recall  f1-score   support\n\n           0       1.00      0.02      0.04        95\n           1       0.53      1.00      0.69       105\n\n    accuracy                           0.54       200\n   macro avg       0.77      0.51      0.37       200\nweighted avg       0.75      0.54      0.38       200\n",
+  "classification_report": "              precision    recall  f1-score   support\n\n           0       0.83      0.05      0.10        95\n           1       0.54      0.99      0.70       105\n\n    accuracy                           0.55       200\n   macro avg       0.68      0.52      0.40       200\nweighted avg       0.68      0.55      0.41       200\n",
   "confusion_matrix": [
     [
-      2,
-      93
+      5,
+      90
     ],
     [
-      0,
-      105
+      1,
+      104
     ]
   ],
   "confusion_matrix_normalized": [
     [
-      0.021052631578947368,
-      0.9789473684210527
+      0.05263157894736842,
+      0.9473684210526315
     ],
     [
-      0.0,
-      1.0
+      0.009523809523809525,
+      0.9904761904761905
     ]
   ]
 }
